@@ -117,27 +117,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  update-readme:
-    name: Update README
-    needs: release
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update version in manifest
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          # Update manifest.json version
-          jq ".version = \"$VERSION\"" extension/manifest.json > tmp.json && mv tmp.json extension/manifest.json
-
-      - name: Commit version update
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add extension/manifest.json
-          git diff --quiet && git diff --staged --quiet || git commit -m "Bump version to ${GITHUB_REF#refs/tags/v}"
-          git push
