@@ -131,17 +131,29 @@ func main() {
 		logger.Info("running in standalone mode", "url", fmt.Sprintf("ws://localhost:%d/ws", actualPort))
 	}
 
-	// Handle shutdown gracefully
+	// Handle shutdown gracefully (only on signal, not on disconnect)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Wait for shutdown signal or disconnect
-	select {
-	case <-sigChan:
-		logger.Info("received shutdown signal")
-	case <-waitForDisconnect(srv):
-		logger.Info("extension disconnected")
-	}
+	// Monitor disconnect/reconnect cycles
+	go func() {
+		wasConnected := false
+		for {
+			isConnected := srv.IsConnected()
+			if isConnected && !wasConnected {
+				logger.Info("extension connected")
+				wasConnected = true
+			} else if !isConnected && wasConnected {
+				logger.Info("extension disconnected - waiting for reconnection")
+				wasConnected = false
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}()
+
+	// Wait for shutdown signal only
+	<-sigChan
+	logger.Info("received shutdown signal")
 
 	// Graceful shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -208,18 +220,4 @@ func sendNativeMessage(msg NativeMessage) error {
 	// Write message
 	_, err = os.Stdout.Write(data)
 	return err
-}
-
-func waitForDisconnect(srv *server.Server) <-chan struct{} {
-	ch := make(chan struct{})
-	go func() {
-		for {
-			if !srv.IsConnected() {
-				close(ch)
-				return
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-	}()
-	return ch
 }
