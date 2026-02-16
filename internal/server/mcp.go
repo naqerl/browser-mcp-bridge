@@ -255,7 +255,7 @@ func (s *Server) callTool(toolName string, params json.RawMessage) (any, error) 
 		return makeJSONResult(tabs)
 		
 	case "browser_tab_activate":
-		var p struct{ TabID int `json:"tab_id"` }
+		var p struct{ TabID int `json:"tabId"` }
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
@@ -266,7 +266,7 @@ func (s *Server) callTool(toolName string, params json.RawMessage) (any, error) 
 		
 	case "browser_tab_navigate":
 		var p struct {
-			TabID int    `json:"tab_id"`
+			TabID int    `json:"tabId"`
 			URL   string `json:"url"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -278,7 +278,7 @@ func (s *Server) callTool(toolName string, params json.RawMessage) (any, error) 
 		return makeTextResult(fmt.Sprintf("Navigated tab %d to %s", p.TabID, p.URL)), nil
 		
 	case "browser_tab_close":
-		var p struct{ TabID int `json:"tab_id"` }
+		var p struct{ TabID int `json:"tabId"` }
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
@@ -288,7 +288,7 @@ func (s *Server) callTool(toolName string, params json.RawMessage) (any, error) 
 		return makeTextResult(fmt.Sprintf("Tab %d closed", p.TabID)), nil
 		
 	case "browser_tab_screenshot":
-		var p struct{ TabID int `json:"tab_id"` }
+		var p struct{ TabID int `json:"tabId"` }
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
@@ -299,7 +299,7 @@ func (s *Server) callTool(toolName string, params json.RawMessage) (any, error) 
 		return makeTextResult(dataUrl), nil
 		
 	case "browser_page_content":
-		var p struct{ TabID int `json:"tab_id"` }
+		var p struct{ TabID int `json:"tabId"` }
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
@@ -311,7 +311,7 @@ func (s *Server) callTool(toolName string, params json.RawMessage) (any, error) 
 		
 	case "browser_page_click":
 		var p struct {
-			TabID    int    `json:"tab_id"`
+			TabID    int    `json:"tabId"`
 			Selector string `json:"selector"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -324,7 +324,7 @@ func (s *Server) callTool(toolName string, params json.RawMessage) (any, error) 
 		
 	case "browser_page_fill":
 		var p struct {
-			TabID    int    `json:"tab_id"`
+			TabID    int    `json:"tabId"`
 			Selector string `json:"selector"`
 			Value    string `json:"value"`
 		}
@@ -338,7 +338,7 @@ func (s *Server) callTool(toolName string, params json.RawMessage) (any, error) 
 		
 	case "browser_page_scroll":
 		var p struct {
-			TabID int `json:"tab_id"`
+			TabID int `json:"tabId"`
 			X     int `json:"x"`
 			Y     int `json:"y"`
 		}
@@ -352,7 +352,7 @@ func (s *Server) callTool(toolName string, params json.RawMessage) (any, error) 
 		
 	case "browser_page_execute":
 		var p struct {
-			TabID  int    `json:"tab_id"`
+			TabID  int    `json:"tabId"`
 			Script string `json:"script"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -366,7 +366,7 @@ func (s *Server) callTool(toolName string, params json.RawMessage) (any, error) 
 		
 	case "browser_page_find":
 		var p struct {
-			TabID    int    `json:"tab_id"`
+			TabID    int    `json:"tabId"`
 			Selector string `json:"selector"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
