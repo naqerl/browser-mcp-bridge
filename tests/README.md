@@ -1,6 +1,6 @@
-# Browser MCP Bridge - Regression Tests
+# Browser MCP Bridge - E2E Tests
 
-This directory contains Playwright-based regression tests for the Browser MCP Bridge.
+This directory contains Playwright-based end-to-end (E2E) tests for the Browser MCP Bridge.
 
 ## Test Coverage
 
@@ -87,8 +87,8 @@ npm run test:headed
 
 ```
 tests/
-├── mcp-regression.spec.js    # Main test suite
-├── README.md                  # This file
+├── mcp-e2e.spec.js    # Main E2E test suite
+├── README.md           # This file
 └── ...
 ```
 
