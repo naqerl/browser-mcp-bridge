@@ -224,14 +224,26 @@ async function handleServerRequest(msg) {
           result = await chrome.tabs.update(params.tabId, params.props);
           log('log', `tabs.update success: result=${JSON.stringify(result)}`);
         } catch (updateErr) {
-          log('error', `tabs.update failed: tabId=${params.tabId}, error=${updateErr.message}`);
-          throw updateErr;
+          // Get available tabs to help LLM understand the situation
+          const tabs = await chrome.tabs.query({});
+          const tabList = tabs.map(t => `ID:${t.id} URL:${t.url} Title:"${t.title}"`).join('; ');
+          const enhancedError = new Error(`${updateErr.message}. Available tabs: [${tabList}]`);
+          log('error', `tabs.update failed: tabId=${params.tabId}, error=${enhancedError.message}`);
+          throw enhancedError;
         }
         break;
         
       case 'browser.tabs.remove':
-        await chrome.tabs.remove(params.tabId);
-        result = null;
+        try {
+          await chrome.tabs.remove(params.tabId);
+          result = null;
+        } catch (removeErr) {
+          // Get available tabs to help LLM understand the situation
+          const tabs = await chrome.tabs.query({});
+          const tabList = tabs.map(t => `ID:${t.id} URL:${t.url} Title:"${t.title}"`).join('; ');
+          const enhancedError = new Error(`${removeErr.message}. Available tabs: [${tabList}]`);
+          throw enhancedError;
+        }
         break;
         
       case 'browser.tabs.captureVisibleTab':
@@ -239,17 +251,25 @@ async function handleServerRequest(msg) {
         break;
         
       case 'browser.scripting.executeScript':
-        result = await chrome.scripting.executeScript({
-          target: { tabId: params.tabId },
-          func: (code) => {
-            try {
-              return eval(code);
-            } catch (e) {
-              return { error: e.message };
-            }
-          },
-          args: [params.script]
-        });
+        try {
+          result = await chrome.scripting.executeScript({
+            target: { tabId: params.tabId },
+            func: (code) => {
+              try {
+                return eval(code);
+              } catch (e) {
+                return { error: e.message };
+              }
+            },
+            args: [params.script]
+          });
+        } catch (execErr) {
+          // Get available tabs to help LLM understand the situation
+          const tabs = await chrome.tabs.query({});
+          const tabList = tabs.map(t => `ID:${t.id} URL:${t.url} Title:"${t.title}"`).join('; ');
+          const enhancedError = new Error(`${execErr.message}. Available tabs: [${tabList}]`);
+          throw enhancedError;
+        }
         break;
         
       default:
