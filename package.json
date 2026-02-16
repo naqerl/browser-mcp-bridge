@@ -1,0 +1,35 @@
+{
+  "name": "browser-mcp-bridge",
+  "version": "1.0.0",
+  "description": "Control your browser via WebSocket MCP (Model Context Protocol). A Go-native host with a Chrome extension for browser automation.",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:ui": "npx playwright test --ui",
+    "test:debug": "npx playwright test --debug",
+    "test:headed": "npx playwright test --headed",
+    "build": "go build -o native-host/host ./cmd/host/",
+    "install:host": "./install.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/naqerl/browser-mcp-bridge.git"
+  },
+  "keywords": [
+    "mcp",
+    "browser",
+    "automation",
+    "chrome",
+    "extension",
+    "websocket"
+  ],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/naqerl/browser-mcp-bridge/issues"
+  },
+  "homepage": "https://github.com/naqerl/browser-mcp-bridge#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.41.0"
+  }
+}
