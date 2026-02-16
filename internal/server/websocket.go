@@ -391,7 +391,7 @@ func (s *Server) SendRequest(method string, params any) (*mcp.Message, error) {
 	}
 
 	s.requestMu.Lock()
-	s.reqID++
+	s.reqID += 1000  // Use large increments to avoid collision with extension IDs
 	id := s.reqID
 	ch := make(chan *mcp.Message, 1)
 	s.pendingReqs[id] = ch

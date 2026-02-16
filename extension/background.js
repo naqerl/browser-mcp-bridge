@@ -3,7 +3,17 @@
 
 const DEFAULT_WS_PORT = 6277;
 const RECONNECT_INTERVAL = 3000;
-const WS_URL = `ws://127.0.0.1:${DEFAULT_WS_PORT}/ws`;
+
+// State
+let WS_PORT = DEFAULT_WS_PORT;
+let WS_URL = `ws://127.0.0.1:${WS_PORT}/ws`;
+
+// Update WebSocket URL when port changes
+function updateWsUrl(port) {
+  WS_PORT = port || DEFAULT_WS_PORT;
+  WS_URL = `ws://127.0.0.1:${WS_PORT}/ws`;
+  return WS_URL;
+}
 
 // State
 const state = {
@@ -44,17 +54,24 @@ function startKeepalive() {
       log('debug', 'Keepalive ping sent');
     }
   }, 20000);
-  
-  // Also keep chrome runtime alive
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    // This keeps the service worker alive
-    return false;
-  });
 }
 
 // Initialize
-function init() {
+async function init() {
   log('log', 'Browser MCP Bridge initializing...');
+  
+  // Try to get port from storage (allows test configuration)
+  try {
+    const stored = await chrome.storage.local.get(['wsPort']);
+    if (stored.wsPort) {
+      updateWsUrl(stored.wsPort);
+      log('log', 'Using stored WebSocket port:', WS_PORT);
+    }
+  } catch (e) {
+    // Storage not available, use default
+    log('log', 'Storage not available, using default port');
+  }
+  
   log('log', 'Connecting to WebSocket at', WS_URL);
   connectWebSocket();
   startKeepalive();
@@ -66,7 +83,7 @@ function connectWebSocket() {
     return; // Already connecting or connected
   }
 
-  log('log', 'Connecting to WebSocket...');
+  log('log', 'Connecting to WebSocket at', WS_URL);
   
   try {
     const ws = new WebSocket(WS_URL);
@@ -143,6 +160,18 @@ function handleWebSocketMessage(data) {
   }
 }
 
+// Parse params - handle both string and object (Go sends objects directly now)
+function parseParams(params) {
+  if (typeof params === 'string') {
+    try {
+      return JSON.parse(params);
+    } catch (e) {
+      return { raw: params };
+    }
+  }
+  return params || {};
+}
+
 // Handle requests from Go server (Go -> Extension)
 async function handleServerRequest(msg) {
   const operationId = `op-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -154,6 +183,7 @@ async function handleServerRequest(msg) {
     });
     
     let result;
+    const params = parseParams(msg.params);
     
     switch (msg.method) {
       case 'browser.tabs.query':
@@ -161,13 +191,11 @@ async function handleServerRequest(msg) {
         break;
         
       case 'browser.tabs.update':
-        const { tabId, props } = JSON.parse(msg.params);
-        result = await chrome.tabs.update(tabId, props);
+        result = await chrome.tabs.update(params.tabId, params.props);
         break;
         
       case 'browser.tabs.remove':
-        const { tabId: removeId } = JSON.parse(msg.params);
-        await chrome.tabs.remove(removeId);
+        await chrome.tabs.remove(params.tabId);
         result = null;
         break;
         
@@ -176,9 +204,8 @@ async function handleServerRequest(msg) {
         break;
         
       case 'browser.scripting.executeScript':
-        const { tabId: scriptTabId, script } = JSON.parse(msg.params);
         result = await chrome.scripting.executeScript({
-          target: { tabId: scriptTabId },
+          target: { tabId: params.tabId },
           func: (code) => {
             try {
               return eval(code);
@@ -186,7 +213,7 @@ async function handleServerRequest(msg) {
               return { error: e.message };
             }
           },
-          args: [script]
+          args: [params.script]
         });
         break;
         
@@ -233,10 +260,11 @@ function sendRequest(method, params = {}) {
     state.requestId++;
     const id = state.requestId;
     
+    // Send params as object (Go will json.Unmarshal into struct)
     const msg = {
       id,
       method,
-      params: JSON.stringify(params)
+      params: params
     };
     
     // Set up timeout
@@ -259,7 +287,7 @@ const MCP = {
   getStatus: () => ({
     connected: state.connected,
     ready: state.connected,
-    wsPort: DEFAULT_WS_PORT,
+    wsPort: WS_PORT,
     wsUrl: WS_URL,
     activeOperations: Array.from(state.activeOperations.values()),
     errors: state.errors.slice(-5),
@@ -267,16 +295,27 @@ const MCP = {
   }),
   
   // Reconnect function
-  reconnect: () => {
+  reconnect: async (port) => {
+    if (port && port !== WS_PORT) {
+      updateWsUrl(port);
+      // Save to storage for persistence
+      try {
+        await chrome.storage.local.set({ wsPort: port });
+        log('log', 'Port updated to', port);
+      } catch (e) {
+        // Storage may not be available in test environment
+        log('log', 'Storage not available, using provided port:', port);
+      }
+    }
     if (state.ws) {
       state.ws.close();
     }
     connectWebSocket();
   },
   
-  // Tab operations
+  // Tab operations - these call the Go host
   async listTabs() {
-    return sendRequest('tabs/list');
+    return sendRequest('tabs/list', {});
   },
   
   async activateTab(tabId) {
@@ -341,9 +380,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   
   if (action === 'reconnect') {
-    MCP.reconnect();
-    sendResponse({ success: true });
-    return false;
+    // params is an array, first element is the port
+    const port = params && params[0];
+    MCP.reconnect(port).then(() => {
+      sendResponse({ success: true });
+    }).catch(err => {
+      sendResponse({ success: false, error: err.message });
+    });
+    return true; // Async response
   }
   
   if (MCP[action]) {

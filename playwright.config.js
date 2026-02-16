@@ -1,5 +1,5 @@
 // @ts-check
-const { defineConfig, devices } = require('@playwright/test');
+const { defineConfig } = require('@playwright/test');
 
 /**
  * @see https://playwright.dev/docs/test-configuration
@@ -7,8 +7,8 @@ const { defineConfig, devices } = require('@playwright/test');
 module.exports = defineConfig({
   testDir: './tests',
   
-  /* Run tests in files in parallel */
-  fullyParallel: true,
+  /* Run tests serially since we share one browser instance */
+  fullyParallel: false,
   
   /* Fail the build on CI if you accidentally left test.only in the source code */
   forbidOnly: !!process.env.CI,
@@ -16,8 +16,8 @@ module.exports = defineConfig({
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
   
-  /* Opt out of parallel tests on CI */
-  workers: process.env.CI ? 1 : undefined,
+  /* Use single worker to avoid port conflicts */
+  workers: 1,
   
   /* Reporter to use */
   reporter: [
@@ -25,10 +25,13 @@ module.exports = defineConfig({
     ['list']
   ],
   
+  /* Test timeout - allow time for browser operations */
+  timeout: 60000,
+  
   /* Shared settings for all the projects below */
   use: {
     /* Base URL to use in actions like `await page.goto('/')` */
-    baseURL: 'http://localhost:6277',
+    baseURL: 'http://localhost:6278',
     
     /* Collect trace when retrying the failed test */
     trace: 'on-first-retry',
@@ -40,26 +43,10 @@ module.exports = defineConfig({
     video: 'retain-on-failure',
   },
 
-  /* Configure projects for major browsers */
-  projects: [
-    {
-      name: 'chromium',
-      use: { 
-        ...devices['Desktop Chrome'],
-        launchOptions: {
-          args: [
-            `--disable-extensions-except=${__dirname}/extension`,
-            `--load-extension=${__dirname}/extension`,
-          ],
-        },
-      },
-    },
-  ],
-
   /* Run local dev server before starting the tests */
   webServer: {
-    command: './native-host/host',
-    url: 'http://localhost:6277/health',
+    command: './native-host/host --port 6278',
+    url: 'http://localhost:6278/health',
     reuseExistingServer: !process.env.CI,
     timeout: 10000,
   },
