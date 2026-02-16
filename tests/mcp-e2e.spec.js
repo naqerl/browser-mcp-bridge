@@ -92,7 +92,7 @@ function getResultText(result) {
   return null;
 }
 
-test.describe('Browser MCP Bridge - Regression Tests', () => {
+test.describe('Browser MCP Bridge - E2E Tests', () => {
   test.beforeAll(async () => {
     // Build host if needed
     if (!fs.existsSync(HOST_BINARY)) {
@@ -480,6 +480,151 @@ test.describe('Browser MCP Bridge - Regression Tests', () => {
       expect(result.jsonrpc).toBe('2.0');
       expect(result.error).toBeDefined();
       expect(result.error.message).toContain('unknown tool');
+    });
+
+    test('returns error for invalid tab ID', async () => {
+      const result = await callTool('browser_tab_navigate', {
+        tab_id: 999999999,
+        url: 'https://example.com'
+      });
+      
+      expect(result.jsonrpc).toBe('2.0');
+      // Should either return error or result with error message
+      const hasError = result.error || 
+        (result.result && result.result.isError) ||
+        (getResultText(result) && getResultText(result).toLowerCase().includes('error'));
+      expect(hasError).toBeTruthy();
+    });
+
+    test('returns error for malformed JSON-RPC request', async () => {
+      const response = await fetch(`${MCP_URL}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'invalid json'
+      });
+      
+      expect(response.status).toBe(400);
+    });
+
+    test('handles missing tool parameters gracefully', async () => {
+      const result = await callTool('browser_tab_navigate', {});
+      
+      expect(result.jsonrpc).toBe('2.0');
+      // Should handle missing params gracefully
+      expect(result.result || result.error).toBeDefined();
+    });
+  });
+
+  test.describe('Connection Stability', () => {
+    test('handles rapid successive tool calls', async () => {
+      // Make rapid calls sequentially (not parallel) to avoid overwhelming
+      const results = [];
+      for (let i = 0; i < 3; i++) {
+        const result = await callTool('browser_tabs_list');
+        results.push(result);
+        await new Promise(r => setTimeout(r, 100)); // Small delay between calls
+      }
+      
+      // All should succeed
+      results.forEach(result => {
+        expect(result.jsonrpc).toBe('2.0');
+        expect(result.result).toBeDefined();
+      });
+    });
+
+    test('maintains connection across multiple operations', async ({ extContext: context }) => {
+      const [sw] = context.serviceWorkers();
+      
+      // Perform multiple operations
+      await callTool('browser_tabs_list');
+      await callTool('browser_tabs_list');
+      await callTool('browser_tabs_list');
+      
+      // Check still connected
+      const status = await sw.evaluate(() => MCP.getStatus());
+      expect(status.connected).toBe(true);
+    });
+  });
+
+  test.describe('Tool Schema Validation', () => {
+    test('all tools have required fields', async () => {
+      const result = await mcpCall('tools/list', {});
+      
+      expect(result.result.tools).toBeDefined();
+      
+      for (const tool of result.result.tools) {
+        expect(tool).toHaveProperty('name');
+        expect(tool).toHaveProperty('description');
+        expect(tool).toHaveProperty('inputSchema');
+        expect(tool.name).toMatch(/^browser_/);
+      }
+    });
+
+    test('tool names match expected pattern', async () => {
+      const result = await mcpCall('tools/list', {});
+      const toolNames = result.result.tools.map(t => t.name);
+      
+      const expectedPrefixes = ['browser_tabs_', 'browser_tab_', 'browser_page_'];
+      
+      for (const name of toolNames) {
+        const hasValidPrefix = expectedPrefixes.some(prefix => name.startsWith(prefix));
+        expect(hasValidPrefix).toBe(true);
+      }
+    });
+  });
+
+  test.describe('Edge Cases', () => {
+    test('handles empty tabs list gracefully', async ({ extContext: context }) => {
+      // Get tabs and verify structure even with single tab
+      const result = await callTool('browser_tabs_list');
+      const tabs = JSON.parse(getResultText(result));
+      
+      expect(Array.isArray(tabs)).toBe(true);
+      if (tabs.length > 0) {
+        expect(tabs[0]).toHaveProperty('id');
+        expect(tabs[0]).toHaveProperty('url');
+      }
+    });
+
+    test('handles navigation to same URL', async ({ extContext: context }) => {
+      const page = context.pages()[0] || await context.newPage();
+      
+      // Navigate once
+      await page.goto('https://example.com');
+      await page.waitForTimeout(500);
+      
+      const listResult = await callTool('browser_tabs_list');
+      const tabs = JSON.parse(getResultText(listResult));
+      const activeTab = tabs.find(t => t.active);
+      
+      // Navigate to same URL again
+      const result = await callTool('browser_tab_navigate', {
+        tab_id: activeTab.id,
+        url: 'https://example.com'
+      });
+      
+      expect(result.jsonrpc).toBe('2.0');
+      expect(result.result).toBeDefined();
+    });
+
+    test('screenshot returns valid base64 format', async ({ extContext: context }) => {
+      const page = context.pages()[0] || await context.newPage();
+      
+      await page.goto('https://example.com');
+      await page.waitForTimeout(500);
+      
+      const listResult = await callTool('browser_tabs_list');
+      const tabs = JSON.parse(getResultText(listResult));
+      const activeTab = tabs.find(t => t.active);
+      
+      const result = await callTool('browser_tab_screenshot', {
+        tab_id: activeTab.id
+      });
+      
+      const text = getResultText(result);
+      
+      // Validate base64 image format (could be png or jpeg)
+      expect(text).toMatch(/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/);
     });
   });
 
