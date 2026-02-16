@@ -37,11 +37,38 @@ function log(level, ...args) {
   console[level === 'error' ? 'error' : 'log'](`[BrowserMCP]`, ...args);
 }
 
-function addError(error) {
-  const entry = { time: Date.now(), message: error.message || String(error) };
+// Send error to Go backend for centralized logging
+function sendErrorToBackend(error, context = '') {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    return; // Can't send if not connected
+  }
+  
+  const errorMsg = {
+    method: 'extension/error',
+    params: {
+      message: error.message || String(error),
+      stack: error.stack || '',
+      context: context,
+      time: Date.now()
+    }
+  };
+  
+  try {
+    state.ws.send(JSON.stringify(errorMsg));
+  } catch (e) {
+    // Silent fail - don't create infinite loop
+    console.error('[BrowserMCP] Failed to send error to backend:', e);
+  }
+}
+
+function addError(error, context = '') {
+  const entry = { time: Date.now(), message: error.message || String(error), context };
   state.errors.push(entry);
   if (state.errors.length > 50) state.errors.shift();
   log('error', 'Error:', entry.message);
+  
+  // Also send to Go backend for debugging
+  sendErrorToBackend(error, context);
 }
 
 // Keepalive to prevent service worker from being terminated
@@ -115,7 +142,7 @@ function connectWebSocket() {
     
     ws.onerror = (err) => {
       log('error', 'WebSocket error:', err);
-      addError(new Error('WebSocket connection failed - is the host running?'));
+      addError(new Error('WebSocket connection failed - is the host running?'), 'websocket');
     };
   } catch (err) {
     log('error', 'Failed to create WebSocket:', err);
@@ -157,6 +184,7 @@ function handleWebSocketMessage(data) {
     }
   } catch (err) {
     log('error', 'Failed to parse WebSocket message:', err);
+      addError(err, 'websocket-message-parse');
   }
 }
 
@@ -226,6 +254,7 @@ async function handleServerRequest(msg) {
     
   } catch (err) {
     log('error', `Request ${msg.method} failed:`, err);
+      addError(err, `request-${msg.method}`);
     // Send proper MCP error format
     sendResponse(msg.id, { 
       error: { 

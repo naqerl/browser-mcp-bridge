@@ -347,6 +347,21 @@ func (s *Server) handleRequest(msg *mcp.Message) {
 	case "ping":
 		// Keepalive ping - just respond with pong
 		result = map[string]any{"pong": true}
+	case "extension/error":
+		// Log extension errors for debugging
+		var params struct {
+			Message string `json:"message"`
+			Stack   string `json:"stack"`
+			Context string `json:"context"`
+			Time    int64  `json:"time"`
+		}
+		if err = json.Unmarshal(msg.Params, &params); err == nil {
+			s.logger.Error("extension error", 
+				"context", params.Context, 
+				"message", params.Message, 
+				"stack", params.Stack)
+			result = map[string]any{"logged": true}
+		}
 	default:
 		err = fmt.Errorf("unknown method: %s", msg.Method)
 	}
