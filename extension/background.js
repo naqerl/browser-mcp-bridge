@@ -219,7 +219,14 @@ async function handleServerRequest(msg) {
         break;
         
       case 'browser.tabs.update':
-        result = await chrome.tabs.update(params.tabId, params.props);
+        log('log', `tabs.update called: tabId=${params.tabId}, props=${JSON.stringify(params.props)}`);
+        try {
+          result = await chrome.tabs.update(params.tabId, params.props);
+          log('log', `tabs.update success: result=${JSON.stringify(result)}`);
+        } catch (updateErr) {
+          log('error', `tabs.update failed: tabId=${params.tabId}, error=${updateErr.message}`);
+          throw updateErr;
+        }
         break;
         
       case 'browser.tabs.remove':
@@ -250,18 +257,22 @@ async function handleServerRequest(msg) {
     }
     
     // Send success response
+    log('log', `Sending success response for ${msg.method}, id=${msg.id}`);
     sendResponse(msg.id, { result });
     
   } catch (err) {
-    log('error', `Request ${msg.method} failed:`, err);
-      addError(err, `request-${msg.method}`);
+    log('error', `Request ${msg.method} failed:`, err.message, err.stack);
+    addError(err, `request-${msg.method}`);
     // Send proper MCP error format
-    sendResponse(msg.id, { 
+    const errorResponse = { 
       error: { 
         code: -32603, 
-        message: err.message || String(err) 
+        message: err.message || String(err),
+        data: { method: msg.method, stack: err.stack }
       } 
-    });
+    };
+    log('log', `Sending error response for ${msg.method}, id=${msg.id}:`, JSON.stringify(errorResponse));
+    sendResponse(msg.id, errorResponse);
   } finally {
     state.activeOperations.delete(operationId);
   }
