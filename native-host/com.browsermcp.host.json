@@ -1,0 +1,9 @@
+{
+  "name": "com.browsermcp.host",
+  "description": "Browser MCP Bridge Native Host",
+  "path": "HOST_PATH",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://*/"
+  ]
+}
