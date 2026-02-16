@@ -9,8 +9,7 @@
     "scripting",
     "storage",
     "background",
-    "webNavigation",
-    "<all_urls>"
+    "webNavigation"
   ],
   "host_permissions": [
     "<all_urls>"
