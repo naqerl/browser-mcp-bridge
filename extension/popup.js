@@ -4,7 +4,8 @@
 const els = {
   statusIndicator: document.getElementById('status-indicator'),
   connectionStatus: document.getElementById('connection-status'),
-  wsPort: document.getElementById('ws-port'),
+  wsUrl: document.getElementById('ws-url'),
+  instructions: document.getElementById('instructions'),
   activeOps: document.getElementById('active-ops'),
   opsList: document.getElementById('ops-list'),
   errors: document.getElementById('errors'),
@@ -42,22 +43,20 @@ function updateStatus(status) {
   els.statusIndicator.className = 'status';
   els.connectionStatus.className = 'connection-text';
   
-  if (status.connected && status.ready) {
+  if (status.connected) {
     els.statusIndicator.classList.add('connected');
     els.connectionStatus.classList.add('connected');
     els.connectionStatus.textContent = 'Connected';
-  } else if (status.connected) {
-    els.statusIndicator.classList.add('connecting');
-    els.connectionStatus.classList.add('connecting');
-    els.connectionStatus.textContent = 'Initializing...';
+    els.instructions.classList.add('hidden');
   } else {
     els.statusIndicator.classList.add('disconnected');
     els.connectionStatus.classList.add('disconnected');
     els.connectionStatus.textContent = 'Disconnected';
+    els.instructions.classList.remove('hidden');
   }
   
-  // WebSocket port
-  els.wsPort.textContent = status.wsPort ? `Port: ${status.wsPort}` : '';
+  // WebSocket URL
+  els.wsUrl.textContent = status.wsUrl || '';
   
   // Active operations
   if (status.activeOperations && status.activeOperations.length > 0) {
@@ -119,7 +118,6 @@ async function fetchStatus() {
     console.error('Failed to fetch status:', err);
     updateStatus({
       connected: false,
-      ready: false,
       errors: [{ time: Date.now(), message: 'Failed to communicate with extension' }],
       logs: []
     });
@@ -132,15 +130,13 @@ async function reconnect() {
   els.statusIndicator.className = 'status connecting';
   
   try {
-    // Try to trigger reconnection by reloading background
-    // This is a bit hacky but works for now
-    chrome.runtime.reload();
-    
+    await chrome.runtime.sendMessage({ action: 'reconnect' });
     // Wait a bit and refresh
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 1000));
     await fetchStatus();
   } catch (err) {
     console.error('Reconnect failed:', err);
+    await fetchStatus();
   }
 }
 

@@ -13,7 +13,16 @@
   
   <div class="status-section">
     <div id="connection-status" class="connection-text">Connecting...</div>
-    <div id="ws-port" class="port-text"></div>
+    <div id="ws-url" class="port-text"></div>
+  </div>
+  
+  <!-- Instructions shown when disconnected -->
+  <div id="instructions" class="instructions hidden">
+    <div class="instructions-title">⚠️ Host Not Running</div>
+    <p>The WebSocket host is not running. Start it with:</p>
+    <code>browser-mcp-host</code>
+    <p class="instructions-note">Or download from:<br>
+    <a href="https://github.com/naqerl/browser-mcp-bridge/releases" target="_blank">github.com/naqerl/browser-mcp-bridge</a></p>
   </div>
   
   <div class="section">

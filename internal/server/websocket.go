@@ -64,9 +64,16 @@ func New(handler Handler, logger *slog.Logger) *Server {
 // Start starts the WebSocket server on an ephemeral port.
 // Returns the port number and any error.
 func (s *Server) Start() (int, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	return s.StartFixed(0)
+}
+
+// StartFixed starts the WebSocket server on a specific port (or 0 for ephemeral).
+// Returns the actual port number and any error.
+func (s *Server) StartFixed(port int) (int, error) {
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		return 0, fmt.Errorf("failed to listen: %w", err)
+		return 0, fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
 	s.listener = listener
 

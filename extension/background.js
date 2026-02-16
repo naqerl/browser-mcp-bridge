@@ -1,20 +1,20 @@
 // Browser MCP Bridge - Background Script
-// Handles native messaging to launch Go binary and WebSocket communication
+// Connects directly to WebSocket server (bypasses native messaging for Flatpak support)
 
-const NATIVE_HOST_NAME = 'com.browsermcp.host';
+const DEFAULT_WS_PORT = 6277;
+const RECONNECT_INTERVAL = 3000;
+const WS_URL = `ws://127.0.0.1:${DEFAULT_WS_PORT}/ws`;
 
 // State
 const state = {
-  nativePort: null,
   ws: null,
-  wsPort: null,
   connected: false,
-  ready: false,
   pendingRequests: new Map(),
   requestId: 0,
   errors: [],
   logs: [],
-  activeOperations: new Map()
+  activeOperations: new Map(),
+  reconnectTimer: null
 };
 
 // Logger that stores logs for popup
@@ -35,122 +35,70 @@ function addError(error) {
 }
 
 // Initialize
-async function init() {
+function init() {
   log('log', 'Browser MCP Bridge initializing...');
-  
-  try {
-    await connectNativeHost();
-  } catch (err) {
-    addError(err);
-  }
-}
-
-// Connect to native host (Go binary)
-function connectNativeHost() {
-  return new Promise((resolve, reject) => {
-    log('log', 'Connecting to native host...');
-    
-    try {
-      state.nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
-    } catch (err) {
-      reject(new Error(`Failed to connect native host: ${err.message}`));
-      return;
-    }
-    
-    state.nativePort.onMessage.addListener((msg) => {
-      handleNativeMessage(msg, resolve, reject);
-    });
-    
-    state.nativePort.onDisconnect.addListener(() => {
-      const error = chrome.runtime.lastError;
-      if (error) {
-        log('error', 'Native host disconnected:', error.message);
-        addError(error);
-      } else {
-        log('log', 'Native host disconnected');
-      }
-      
-      state.nativePort = null;
-      state.ready = false;
-      state.connected = false;
-      
-      // Attempt reconnect after delay
-      setTimeout(() => {
-        if (!state.ready) {
-          log('log', 'Attempting reconnect...');
-          connectNativeHost().catch(() => {});
-        }
-      }, 5000);
-    });
-  });
-}
-
-// Handle messages from native host
-function handleNativeMessage(msg, resolve, reject) {
-  log('log', 'Native message:', msg);
-  
-  if (msg.error) {
-    const err = new Error(msg.error);
-    addError(err);
-    reject(err);
-    return;
-  }
-  
-  // Received WebSocket port
-  if (msg.port) {
-    state.wsPort = msg.port;
-    log('log', 'Received WebSocket port:', msg.port);
-    connectWebSocket(msg.port).then(resolve).catch(reject);
-    return;
-  }
-  
-  // Ready status
-  if (msg.status === 'ready') {
-    state.ready = true;
-    log('log', 'Native host ready');
-  }
+  log('log', 'Connecting to WebSocket at', WS_URL);
+  connectWebSocket();
 }
 
 // Connect to WebSocket server
-function connectWebSocket(port) {
-  return new Promise((resolve, reject) => {
-    const wsUrl = `ws://127.0.0.1:${port}/ws`;
-    log('log', 'Connecting to WebSocket:', wsUrl);
-    
-    const ws = new WebSocket(wsUrl);
+function connectWebSocket() {
+  if (state.ws && (state.ws.readyState === WebSocket.CONNECTING || state.ws.readyState === WebSocket.OPEN)) {
+    return; // Already connecting or connected
+  }
+
+  log('log', 'Connecting to WebSocket...');
+  
+  try {
+    const ws = new WebSocket(WS_URL);
     
     ws.onopen = () => {
       log('log', 'WebSocket connected');
       state.ws = ws;
       state.connected = true;
-      resolve();
+      
+      // Clear any reconnect timer
+      if (state.reconnectTimer) {
+        clearTimeout(state.reconnectTimer);
+        state.reconnectTimer = null;
+      }
     };
     
     ws.onmessage = (event) => {
       handleWebSocketMessage(event.data);
     };
     
-    ws.onclose = () => {
-      log('log', 'WebSocket closed');
+    ws.onclose = (event) => {
+      log('log', 'WebSocket closed', event.code, event.reason);
       state.ws = null;
       state.connected = false;
-      state.ready = false;
+      
+      // Schedule reconnect
+      scheduleReconnect();
     };
     
     ws.onerror = (err) => {
       log('error', 'WebSocket error:', err);
-      addError(new Error('WebSocket connection failed'));
-      reject(err);
+      addError(new Error('WebSocket connection failed - is the host running?'));
     };
-    
-    // Timeout
-    setTimeout(() => {
+  } catch (err) {
+    log('error', 'Failed to create WebSocket:', err);
+    addError(err);
+    scheduleReconnect();
+  }
+}
+
+// Schedule reconnect attempt
+function scheduleReconnect() {
+  if (!state.reconnectTimer) {
+    state.reconnectTimer = setTimeout(() => {
+      state.reconnectTimer = null;
       if (!state.connected) {
-        ws.close();
-        reject(new Error('WebSocket connection timeout'));
+        log('log', 'Attempting reconnect...');
+        connectWebSocket();
       }
-    }, 10000);
-  });
+    }, RECONNECT_INTERVAL);
+  }
 }
 
 // Handle WebSocket messages
@@ -253,7 +201,7 @@ function sendResponse(id, data) {
 function sendRequest(method, params = {}) {
   return new Promise((resolve, reject) => {
     if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-      reject(new Error('WebSocket not connected'));
+      reject(new Error('WebSocket not connected - start the host with: browser-mcp-host'));
       return;
     }
     
@@ -282,15 +230,24 @@ function sendRequest(method, params = {}) {
 
 const MCP = {
   // Connection status
-  isConnected: () => state.connected && state.ready,
+  isConnected: () => state.connected,
   getStatus: () => ({
     connected: state.connected,
-    ready: state.ready,
-    wsPort: state.wsPort,
+    ready: state.connected,
+    wsPort: DEFAULT_WS_PORT,
+    wsUrl: WS_URL,
     activeOperations: Array.from(state.activeOperations.values()),
     errors: state.errors.slice(-5),
     logs: state.logs.slice(-10)
   }),
+  
+  // Reconnect function
+  reconnect: () => {
+    if (state.ws) {
+      state.ws.close();
+    }
+    connectWebSocket();
+  },
   
   // Tab operations
   async listTabs() {
@@ -355,6 +312,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   if (action === 'isConnected') {
     sendResponse(MCP.isConnected());
+    return false;
+  }
+  
+  if (action === 'reconnect') {
+    MCP.reconnect();
+    sendResponse({ success: true });
     return false;
   }
   

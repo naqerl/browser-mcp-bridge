@@ -1,6 +1,7 @@
 // Browser MCP Bridge - Native Host
-// This binary is launched by the browser extension via native messaging.
-// It starts a WebSocket server and bridges MCP requests.
+// Starts a WebSocket server for browser extension to connect to.
+// For Flatpak browsers: Run this binary manually, extension connects via WebSocket.
+// For regular browsers: Can be launched via native messaging (legacy mode).
 package main
 
 import (
@@ -8,6 +9,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,7 +24,9 @@ import (
 	"github.com/naqerl/browser-mcp-bridge/internal/server"
 )
 
-// NativeMessage represents a message from/to the browser extension.
+const defaultPort = 6277
+
+// NativeMessage represents a message from/to the browser extension (legacy native messaging).
 type NativeMessage struct {
 	Port   int    `json:"port,omitempty"`
 	Error  string `json:"error,omitempty"`
@@ -30,86 +34,108 @@ type NativeMessage struct {
 }
 
 func main() {
+	var (
+		port     = flag.Int("port", defaultPort, "WebSocket server port")
+		native   = flag.Bool("native", false, "Use native messaging mode (legacy)")
+		logLevel = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
+	)
+	flag.Parse()
+
+	// Setup logger
+	level := slog.LevelInfo
+	switch *logLevel {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: level,
 	}))
 
-	logger.Info("Browser MCP Bridge starting", "version", "1.0.0")
+	logger.Info("Browser MCP Bridge starting", "version", "1.0.0", "port", *port, "native", *native)
 
 	// Create server and controller
-	// The controller needs the server to send requests, and the server needs
-	// the controller to handle requests. We use a placeholder that gets set later.
 	var srv *server.Server
 	var ctrl *browser.Controller
 
-	// Initialize controller with a lazy sender that will use srv when ready
 	sender := &lazySender{logger: logger}
 	ctrl = browser.NewController(sender)
 
 	srv = server.New(ctrl, logger)
 	sender.server = srv
 
-	// Start WebSocket server
-	port, err := srv.Start()
+	// Start WebSocket server on fixed port
+	actualPort, err := srv.StartFixed(*port)
 	if err != nil {
 		logger.Error("failed to start server", "error", err)
-		sendNativeMessage(NativeMessage{Error: err.Error()})
-		os.Exit(1)
-	}
-
-	logger.Info("WebSocket server started", "port", port)
-
-	// Send port to extension via native messaging
-	if err := sendNativeMessage(NativeMessage{Port: port}); err != nil {
-		logger.Error("failed to send port to extension", "error", err)
-		os.Exit(1)
-	}
-
-	// Wait for extension to connect via WebSocket
-	logger.Info("waiting for extension connection...")
-	waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	for {
-		if srv.IsConnected() {
-			logger.Info("extension connected via WebSocket")
-			break
+		if *native {
+			sendNativeMessage(NativeMessage{Error: err.Error()})
 		}
-		select {
-		case <-waitCtx.Done():
-			logger.Error("timeout waiting for extension connection")
-			sendNativeMessage(NativeMessage{Error: "timeout waiting for WebSocket connection"})
+		os.Exit(1)
+	}
+
+	logger.Info("WebSocket server started", "port", actualPort, "url", fmt.Sprintf("ws://localhost:%d/ws", actualPort))
+
+	// If in native mode, communicate via native messaging
+	if *native {
+		// Send port to extension via native messaging
+		if err := sendNativeMessage(NativeMessage{Port: actualPort}); err != nil {
+			logger.Error("failed to send port to extension", "error", err)
 			os.Exit(1)
-		case <-time.After(100 * time.Millisecond):
-			// Continue waiting
 		}
-	}
 
-	// Send ready status
-	sendNativeMessage(NativeMessage{Status: "ready"})
+		// Wait for extension to connect via WebSocket
+		logger.Info("waiting for extension connection...")
+		waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		for {
+			if srv.IsConnected() {
+				logger.Info("extension connected via WebSocket")
+				break
+			}
+			select {
+			case <-waitCtx.Done():
+				logger.Error("timeout waiting for extension connection")
+				sendNativeMessage(NativeMessage{Error: "timeout waiting for WebSocket connection"})
+				os.Exit(1)
+			case <-time.After(100 * time.Millisecond):
+				// Continue waiting
+			}
+		}
+
+		// Send ready status
+		sendNativeMessage(NativeMessage{Status: "ready"})
+
+		// Keep native messaging channel open for heartbeat
+		go func() {
+			reader := bufio.NewReader(os.Stdin)
+			for {
+				msg, err := readNativeMessage(reader)
+				if err != nil {
+					if err == io.EOF {
+						logger.Info("native messaging channel closed")
+						return
+					}
+					logger.Error("failed to read native message", "error", err)
+					continue
+				}
+				logger.Debug("received native message", "msg", msg)
+			}
+		}()
+	} else {
+		// Standalone mode - just wait for WebSocket connections
+		logger.Info("running in standalone mode", "url", fmt.Sprintf("ws://localhost:%d/ws", actualPort))
+	}
 
 	// Handle shutdown gracefully
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Keep native messaging channel open for heartbeat
-	go func() {
-		reader := bufio.NewReader(os.Stdin)
-		for {
-			msg, err := readNativeMessage(reader)
-			if err != nil {
-				if err == io.EOF {
-					logger.Info("native messaging channel closed")
-					return
-				}
-				logger.Error("failed to read native message", "error", err)
-				continue
-			}
-			logger.Debug("received native message", "msg", msg)
-		}
-	}()
-
-	// Wait for shutdown signal
+	// Wait for shutdown signal or disconnect
 	select {
 	case <-sigChan:
 		logger.Info("received shutdown signal")

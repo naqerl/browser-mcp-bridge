@@ -1,5 +1,8 @@
 #!/bin/bash
-# Browser MCP Bridge - Native Host Installation Script
+# Browser MCP Bridge - Native Host Installation Script (Legacy Mode)
+# 
+# NOTE: This is OPTIONAL and only needed for native messaging support.
+# For Flatpak browsers or manual mode, just run: ./browser-mcp-host
 
 set -e
 
@@ -27,9 +30,13 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}=== Browser MCP Bridge Installer ===${NC}"
-echo "Detected platform: $OS-$ARCH"
-echo
+echo -e "${GREEN}=== Browser MCP Bridge Installer (Legacy Native Messaging) ===${NC}"
+echo ""
+echo -e "${YELLOW}Note:${NC} This is OPTIONAL. For Flatpak browsers, just run the binary directly:"
+echo "  ./browser-mcp-host"
+echo ""
+echo "Native messaging is only needed for auto-starting the host in regular Chrome/Brave."
+echo ""
 
 # Check for pre-built binary
 if [ -f "$PLATFORM_BINARY" ]; then
@@ -101,21 +108,18 @@ echo
 
 if [ $INSTALLED -eq 0 ]; then
   echo -e "${YELLOW}No supported browsers detected in standard locations.${NC}"
-  echo "Please manually install the native host manifest from:"
-  echo "  $SCRIPT_DIR/native-host/$HOST_NAME.json"
-  echo
-  echo "Update the 'path' field to point to:"
-  echo "  $BINARY_PATH"
-  exit 1
+  echo "For Flatpak browsers, native messaging is not needed."
+  echo "Just run the binary directly: ./browser-mcp-host"
+  exit 0
 fi
 
 echo -e "${GREEN}Native host installed!${NC}"
 echo
-echo "Next steps:"
-echo "1. Open your browser and go to chrome://extensions/"
-echo "2. Enable 'Developer mode' (toggle in top right)"
-echo "3. Click 'Load unpacked' and select: $SCRIPT_DIR/extension"
-echo "4. Click the extension icon to see status"
+echo "To use native messaging (auto-start):"
+echo "1. The extension will try to launch the host automatically"
+echo "2. Or run with: ./browser-mcp-host -native"
 echo
-echo "The MCP WebSocket server will start automatically when the extension loads."
+echo "For Flatpak browsers (recommended):"
+echo "Just run: ./browser-mcp-host"
+echo "The extension will connect via WebSocket directly."
 echo
