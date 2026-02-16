@@ -1,0 +1,25 @@
+# Binaries
+browser-mcp-host
+*.exe
+extension/host/
+
+# Go
+*.test
+*.out
+vendor/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Extension packages
+*.zip
+*.crx

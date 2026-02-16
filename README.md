@@ -1,63 +1,95 @@
 # Browser MCP Bridge
 
-Control your browser via HTTP MCP (Model Context Protocol). This tool exposes browser automation capabilities through an HTTP API that follows MCP conventions.
+Control your browser via WebSocket MCP (Model Context Protocol). A Go-native host with a Chrome extension for browser automation.
 
 ## Architecture
 
 ```
-┌─────────────────┐      Native Messaging      ┌──────────────────┐
-│  HTTP Clients   │◄──────────────────────────►│  Browser Ext     │
-│  (MCP/Curl)     │                            │  (content script)│
-└────────┬────────┘                            └────────┬─────────┘
-         │                                              │
-         │ HTTP (port 6277)                    ┌───────▼───────┐
-         │                                       │  Web Pages    │
-┌────────▼────────┐                            └───────────────┘
-│  Native Host    │
-│  (Python HTTP)  │
-└─────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                     Browser Extension                       │
+│  ┌─────────────┐    ┌──────────────┐    ┌──────────────┐  │
+│  │  Popup UI   │◄──►│  Background  │◄──►│ Content      │  │
+│  │  (status)   │    │  (WebSocket) │    │ Script       │  │
+│  └─────────────┘    └──────┬───────┘    └──────────────┘  │
+└─────────────────────────────┼───────────────────────────────┘
+                              │ WebSocket
+┌─────────────────────────────┼───────────────────────────────┐
+│  Go Native Host             │                               │
+│  ┌──────────────────────────┴──┐                            │
+│  │  WebSocket Server           │                            │
+│  │  - MCP message routing      │                            │
+│  │  - Request/response handling│                            │
+│  └─────────────────────────────┘                            │
+└─────────────────────────────────────────────────────────────┘
+        ▲
+        │ Native Messaging (stdio)
+        ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Chrome/Chromium/Brave/Edge                                 │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## Components
+## Features
 
-1. **Browser Extension** - Runs in Chrome/Chromium/Brave/Edge, has full tab access
-2. **Native Host** - Python HTTP server bridging MCP to the extension
-3. **MCP Protocol** - Standard tool-based interface for automation
+- **WebSocket Communication**: Real-time bidirectional messaging between Go host and extension
+- **MCP Protocol**: Standard Model Context Protocol for tool invocation
+- **Popup UI**: Visual status, errors, and active operations
+- **Cross-Platform**: Linux (amd64/arm64), macOS (amd64/arm64), Windows (amd64)
+- **Static Binary**: Single binary distribution, no runtime dependencies
 
-## Installation
+## Quick Start
 
-### 1. Install Native Host
+### Option 1: Download Pre-built Release
+
+1. Download the latest release for your platform from [Releases](https://github.com/naqerl/browser-mcp-bridge/releases)
+2. Extract the zip file
+3. Run the installer:
+   ```bash
+   chmod +x install.sh
+   ./install.sh
+   ```
+4. Load the extension in Chrome:
+   - Go to `chrome://extensions/`
+   - Enable "Developer mode"
+   - Click "Load unpacked"
+   - Select the `extension` folder
+
+### Option 2: Build from Source
+
+**Prerequisites:** Go 1.21+
 
 ```bash
-chmod +x install.sh
+git clone https://github.com/naqerl/browser-mcp-bridge.git
+cd browser-mcp-bridge
+
+# Install tools
+make install-tools
+
+# Build
+make all  # lint + build
+
+# Or build for specific platform
+make build-linux
+make build-darwin
+make build-windows
+
+# Install native host
 ./install.sh
 ```
 
-This installs the native messaging host manifest for your browsers.
+## Usage
 
-### 2. Load Extension
+Once installed, the extension icon will show the connection status. Click it to see:
+- Connection status (green = ready)
+- Active operations
+- Recent errors
+- Recent logs
 
-1. Open Chrome/Chromium/Brave/Edge
-2. Go to `chrome://extensions/`
-3. Enable "Developer mode" (toggle top right)
-4. Click "Load unpacked"
-5. Select the `extension/` folder
-
-### 3. Verify
-
-The extension icon should appear. Click it to verify connection.
-
-Test the HTTP server:
-```bash
-# Check health
-curl http://localhost:6277/health
-
-# List all tabs
-curl http://localhost:6277/tabs
-
-# Get page content
-curl http://localhost:6277/tabs/123/content
-```
+The Go host binary starts automatically when the browser loads the extension. It:
+1. Launches via native messaging
+2. Starts a WebSocket server on an ephemeral port
+3. Notifies the extension of the port
+4. Handles MCP requests
 
 ## MCP Tools Available
 
@@ -70,126 +102,147 @@ curl http://localhost:6277/tabs/123/content
 | `browser_tab_screenshot` | Screenshot tab | `tab_id` |
 | `browser_page_content` | Get page content | `tab_id` |
 | `browser_page_click` | Click element | `tab_id`, `selector` |
-| `browser_page_fill` | Fill input | `tab_id`, `selector`, `value` |
+| `browser_page_fill` | Fill input field | `tab_id`, `selector`, `value` |
 | `browser_page_scroll` | Scroll page | `tab_id`, `x`, `y` |
-| `browser_page_execute` | Execute JS | `tab_id`, `script` |
+| `browser_page_execute` | Execute JavaScript | `tab_id`, `script` |
 | `browser_page_find` | Find elements | `tab_id`, `selector` |
 
-## HTTP API Reference
+## WebSocket API
 
-### GET Endpoints
+The Go host exposes a WebSocket endpoint at `ws://127.0.0.1:<port>/ws`
 
-- `GET /health` - Server status
-- `GET /mcp/info` - Available tools
-- `GET /tabs` - List all tabs
-- `GET /tabs/{id}/content` - Get page content
-- `GET /tabs/{id}/screenshot` - Screenshot as base64
+### Message Format
 
-### POST Endpoints
-
-- `POST /tabs` - Create new tab (`{"url": "..."}`)
-- `POST /tabs/{id}/activate` - Focus tab
-- `POST /tabs/{id}/navigate` - Navigate (`{"url": "..."}`)
-- `POST /tabs/{id}/close` - Close tab
-- `POST /tabs/{id}/execute` - Execute JS (`{"script": "..."}`)
-- `POST /tabs/{id}/click` - Click element (`{"selector": "..."}`)
-- `POST /tabs/{id}/fill` - Fill input (`{"selector": "...", "value": "..."}`)
-- `POST /tabs/{id}/scroll` - Scroll (`{"x": 0, "y": 100}`)
-- `POST /tabs/{id}/find` - Find elements (`{"selector": "..."}`)
-- `POST /mcp/call/{tool}` - MCP tool invocation
-
-## Usage Examples
-
-### List Tabs
-```bash
-curl http://localhost:6277/tabs
+**Request (Extension → Go):**
+```json
+{
+  "id": 1,
+  "method": "tabs/list",
+  "params": "{}"
+}
 ```
 
-### Navigate to URL
-```bash
-curl -X POST http://localhost:6277/tabs/123/navigate \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com"}'
+**Response (Go → Extension):**
+```json
+{
+  "id": 1,
+  "result": [...]
+}
 ```
 
-### Click Element
-```bash
-curl -X POST http://localhost:6277/tabs/123/click \
-  -H "Content-Type: application/json" \
-  -d '{"selector": "button.submit"}'
+**Error Response:**
+```json
+{
+  "id": 1,
+  "error": {
+    "code": -32603,
+    "message": "error description"
+  }
+}
 ```
 
-### Fill Form
+### HTTP Health Check
+
 ```bash
-curl -X POST http://localhost:6277/tabs/123/fill \
-  -H "Content-Type: application/json" \
-  -d '{"selector": "input[name=search]", "value": "hello"}'
+curl http://localhost:<port>/health
 ```
 
-### MCP Tool Call
-```bash
-curl -X POST http://localhost:6277/mcp/call/browser_page_content \
-  -H "Content-Type: application/json" \
-  -d '{"tab_id": 123}'
+Response:
+```json
+{
+  "status": "ok",
+  "extension_connected": true
+}
 ```
-
-## Surf Browser Support
-
-For Surf browser (or other WebKit-based browsers), you may need to:
-
-1. Check if the browser supports Chrome extensions
-2. If not, use a WebKit extension format (different manifest)
-3. Or use a proxy approach with `webkit2gtk` + custom extension
-
-For pure Surf automation without extension support, consider:
-- Using `xdotool` for keyboard/mouse automation
-- Or running Surf with remote debugging: `surf -d` (if supported)
-
-## Security Considerations
-
-- The HTTP server only binds to localhost (127.0.0.1)
-- Native messaging is restricted to the extension origin
-- The extension has broad permissions (`<all_urls>`) - use carefully
-
-## Troubleshooting
-
-**Extension not connecting:**
-- Check browser console for errors
-- Verify native host manifest is installed in correct location
-- Ensure Python 3 is available at `/usr/bin/env python3`
-
-**HTTP server not responding:**
-- Check if port 6277 is free: `lsof -i :6277`
-- Verify extension is loaded and running
-- Check native host stderr logs
-
-**Permission errors:**
-- The extension needs broad permissions for full automation
-- Some actions may fail on restricted pages (chrome://, etc.)
 
 ## Development
 
 ### Project Structure
+
 ```
 browser-mcp-bridge/
+├── cmd/
+│   └── host/              # Go native host entry point
+├── internal/
+│   ├── server/            # WebSocket server
+│   ├── browser/           # Browser automation logic
+│   └── mcp/               # MCP protocol types
 ├── extension/
-│   ├── manifest.json       # Extension manifest
-│   ├── background.js       # Service worker
-│   ├── content.js          # Content script
-│   └── icon.svg            # Icon
+│   ├── manifest.json
+│   ├── background.js      # WebSocket client
+│   ├── popup.html         # Status UI
+│   ├── popup.js           # Popup logic
+│   └── popup.css
 ├── native-host/
-│   ├── host.py             # Native messaging host
-│   └── com.browsermcp.host.json  # Native manifest template
-├── install.sh              # Installation script
+│   └── com.browsermcp.host.json  # Native manifest
+├── .github/workflows/
+│   └── release.yml        # CI/CD
+├── Makefile               # Build automation
+├── go.mod
+├── install.sh
 └── README.md
 ```
 
-### Adding New Tools
+### Makefile Targets
 
-1. Add method handler in `extension/background.js`
-2. Add tool mapping in `native-host/host.py` MCPHandler.call_tool()
-3. Update `/mcp/info` endpoint
+| Target | Description |
+|--------|-------------|
+| `make all` | Lint + build for current platform |
+| `make build` | Build for current platform |
+| `make build-all` | Cross-compile all platforms |
+| `make lint` | Run staticcheck and go vet |
+| `make install-tools` | Install staticcheck v0.7.0 |
+| `make test` | Run tests |
+| `make clean` | Clean build artifacts |
+| `make package` | Create distribution zips |
+
+### Linting
+
+Uses `staticcheck` v0.7.0 for Go linting:
+
+```bash
+make install-tools  # One-time setup
+make lint           # Run linter
+```
+
+## Troubleshooting
+
+### Extension shows "Disconnected"
+
+1. Check that the native host is installed:
+   ```bash
+   ls ~/.config/google-chrome/NativeMessagingHosts/com.browsermcp.host.json
+   ```
+2. Check the path in the manifest points to the binary
+3. Open browser console (F12) → Service Worker → look for errors
+4. Click extension icon → check error logs
+
+### WebSocket connection fails
+
+1. Check if binary runs manually:
+   ```bash
+   ./extension/host/browser-mcp-host
+   ```
+2. Check firewall settings (should allow localhost)
+3. Extension popup shows connection attempts
+
+### Build errors
+
+Ensure Go 1.21+ is installed:
+```bash
+go version
+```
+
+## Security
+
+- WebSocket server only binds to `127.0.0.1` (localhost)
+- Native messaging is restricted to the extension origin
+- No external network access required
 
 ## License
 
 MIT
+
+## Contributing
+
+Pull requests welcome! Please run `make all` before submitting.

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <img src="icon.svg" alt="MCP" class="logo">
+    <h1>Browser MCP</h1>
+    <div id="status-indicator" class="status disconnected"></div>
+  </div>
+  
+  <div class="status-section">
+    <div id="connection-status" class="connection-text">Connecting...</div>
+    <div id="ws-port" class="port-text"></div>
+  </div>
+  
+  <div class="section">
+    <h2>Active Operations</h2>
+    <div id="active-ops" class="empty">No active operations</div>
+    <ul id="ops-list" class="ops-list hidden"></ul>
+  </div>
+  
+  <div class="section">
+    <h2>Recent Errors</h2>
+    <div id="errors" class="empty">No errors</div>
+    <ul id="errors-list" class="errors-list hidden"></ul>
+  </div>
+  
+  <div class="section">
+    <h2>Recent Logs</h2>
+    <ul id="logs-list" class="logs-list"></ul>
+  </div>
+  
+  <div class="actions">
+    <button id="refresh-btn" class="btn primary">Refresh</button>
+    <button id="reconnect-btn" class="btn">Reconnect</button>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

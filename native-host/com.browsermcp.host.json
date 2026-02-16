@@ -1,6 +1,6 @@
 {
   "name": "com.browsermcp.host",
-  "description": "Browser MCP Bridge Native Host",
+  "description": "Browser MCP Bridge Native Host (Go)",
   "path": "HOST_PATH",
   "type": "stdio",
   "allowed_origins": [

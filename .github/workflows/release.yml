@@ -1,0 +1,143 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Install tools
+        run: make install-tools
+
+      - name: Run lint
+        run: make lint
+
+  build:
+    name: Build
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            binary: browser-mcp-host
+          - os: linux
+            arch: arm64
+            binary: browser-mcp-host
+          - os: darwin
+            arch: amd64
+            binary: browser-mcp-host
+          - os: darwin
+            arch: arm64
+            binary: browser-mcp-host
+          - os: windows
+            arch: amd64
+            binary: browser-mcp-host.exe
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p extension/host/${{ matrix.os }}-${{ matrix.arch }}
+          go build -ldflags="-s -w" -o "extension/host/${{ matrix.os }}-${{ matrix.arch }}/${{ matrix.binary }}" ./cmd/host
+
+      - name: Package extension
+        run: |
+          mkdir -p dist
+          # Copy extension files, excluding other platform binaries
+          zip -r "dist/browser-mcp-bridge-${{ matrix.os }}-${{ matrix.arch }}.zip" \
+            extension/ \
+            README.md \
+            -x "extension/host/*/*" \
+            -x "extension/host/browser-mcp-host"
+          # Add the correct binary for this platform
+          cd extension/host/${{ matrix.os }}-${{ matrix.arch }} && \
+            zip -u "../../../dist/browser-mcp-bridge-${{ matrix.os }}-${{ matrix.arch }}.zip" ${{ matrix.binary }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-mcp-bridge-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/browser-mcp-bridge-${{ matrix.os }}-${{ matrix.arch }}.zip
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: browser-mcp-bridge-*
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release
+          find dist -name "*.zip" -exec cp {} release/ \;
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/*.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-readme:
+    name: Update README
+    needs: release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update version in manifest
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          # Update manifest.json version
+          jq ".version = \"$VERSION\"" extension/manifest.json > tmp.json && mv tmp.json extension/manifest.json
+
+      - name: Commit version update
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add extension/manifest.json
+          git diff --quiet && git diff --staged --quiet || git commit -m "Bump version to ${GITHUB_REF#refs/tags/v}"
+          git push

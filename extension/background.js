@@ -1,253 +1,375 @@
 // Browser MCP Bridge - Background Script
-// Handles native messaging and browser automation
+// Handles native messaging to launch Go binary and WebSocket communication
 
 const NATIVE_HOST_NAME = 'com.browsermcp.host';
-let nativePort = null;
-let isConnected = false;
 
-// Connect to native host
-function connectNativeHost() {
-  try {
-    nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
-    isConnected = true;
-    
-    nativePort.onMessage.addListener(handleNativeMessage);
-    nativePort.onDisconnect.addListener(() => {
-      console.log('Native host disconnected:', chrome.runtime.lastError);
-      isConnected = false;
-      nativePort = null;
-      // Auto-reconnect after delay
-      setTimeout(connectNativeHost, 5000);
-    });
-    
-    console.log('Connected to native host');
-  } catch (err) {
-    console.error('Failed to connect to native host:', err);
-    setTimeout(connectNativeHost, 5000);
-  }
-}
+// State
+const state = {
+  nativePort: null,
+  ws: null,
+  wsPort: null,
+  connected: false,
+  ready: false,
+  pendingRequests: new Map(),
+  requestId: 0,
+  errors: [],
+  logs: [],
+  activeOperations: new Map()
+};
 
-// Handle messages from native host
-async function handleNativeMessage(message) {
-  console.log('Received from native host:', message);
+// Logger that stores logs for popup
+function log(level, ...args) {
+  const message = args.join(' ');
+  const entry = { time: Date.now(), level, message };
+  state.logs.push(entry);
+  if (state.logs.length > 100) state.logs.shift();
   
-  const { id, method, params } = message;
-  
-  try {
-    let result;
-    
-    switch (method) {
-      case 'tabs/list':
-        result = await listTabs();
-        break;
-      case 'tabs/activate':
-        result = await activateTab(params.tabId);
-        break;
-      case 'tabs/navigate':
-        result = await navigateTab(params.tabId, params.url);
-        break;
-      case 'tabs/close':
-        result = await closeTab(params.tabId);
-        break;
-      case 'tabs/screenshot':
-        result = await screenshotTab(params.tabId);
-        break;
-      case 'page/executeScript':
-        result = await executeScript(params.tabId, params.script);
-        break;
-      case 'page/getContent':
-        result = await getPageContent(params.tabId);
-        break;
-      case 'page/click':
-        result = await clickElement(params.tabId, params.selector);
-        break;
-      case 'page/fill':
-        result = await fillInput(params.tabId, params.selector, params.value);
-        break;
-      case 'page/scroll':
-        result = await scrollPage(params.tabId, params.x, params.y);
-        break;
-      case 'page/find':
-        result = await findElement(params.tabId, params.selector);
-        break;
-      default:
-        throw new Error(`Unknown method: ${method}`);
-    }
-    
-    sendResponse(id, { result });
-  } catch (error) {
-    sendResponse(id, { error: error.message });
-  }
+  console[level === 'error' ? 'error' : 'log'](`[BrowserMCP]`, ...args);
 }
 
-// Send response back to native host
-function sendResponse(id, data) {
-  if (nativePort) {
-    nativePort.postMessage({ id, ...data });
-  }
-}
-
-// --- MCP Tool Implementations ---
-
-async function listTabs() {
-  const tabs = await chrome.tabs.query({});
-  return tabs.map(t => ({
-    id: t.id,
-    windowId: t.windowId,
-    index: t.index,
-    url: t.url,
-    title: t.title,
-    active: t.active,
-    pinned: t.pinned,
-    audible: t.audible,
-    status: t.status
-  }));
-}
-
-async function activateTab(tabId) {
-  const tab = await chrome.tabs.get(tabId);
-  await chrome.windows.update(tab.windowId, { focused: true });
-  await chrome.tabs.update(tabId, { active: true });
-  return { success: true, tabId };
-}
-
-async function navigateTab(tabId, url) {
-  const tab = await chrome.tabs.update(tabId, { url });
-  // Wait for load
-  await new Promise((resolve) => {
-    const listener = (updatedTabId, info) => {
-      if (updatedTabId === tabId && info.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
-    };
-    chrome.tabs.onUpdated.addListener(listener);
-    // Timeout after 30s
-    setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      resolve();
-    }, 30000);
-  });
-  return { success: true, tabId, url };
-}
-
-async function closeTab(tabId) {
-  await chrome.tabs.remove(tabId);
-  return { success: true, tabId };
-}
-
-async function screenshotTab(tabId) {
-  // Activate tab first
-  await activateTab(tabId);
-  // Small delay to ensure rendering
-  await new Promise(r => setTimeout(r, 100));
-  const dataUrl = await chrome.tabs.captureVisibleTab();
-  return { success: true, dataUrl };
-}
-
-async function executeScript(tabId, script) {
-  const results = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: (code) => {
-      try {
-        return eval(code);
-      } catch (e) {
-        return { error: e.message };
-      }
-    },
-    args: [script]
-  });
-  return { success: true, result: results[0]?.result };
-}
-
-async function getPageContent(tabId) {
-  const results = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => {
-      return {
-        title: document.title,
-        url: window.location.href,
-        text: document.body?.innerText || '',
-        html: document.documentElement.outerHTML,
-        links: Array.from(document.querySelectorAll('a')).map(a => ({
-          text: a.innerText,
-          href: a.href
-        })).slice(0, 100)
-      };
-    }
-  });
-  return { success: true, content: results[0]?.result };
-}
-
-async function clickElement(tabId, selector) {
-  const results = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: (sel) => {
-      const el = document.querySelector(sel);
-      if (!el) return { error: 'Element not found' };
-      el.click();
-      return { clicked: true, tagName: el.tagName };
-    },
-    args: [selector]
-  });
-  return { success: true, result: results[0]?.result };
-}
-
-async function fillInput(tabId, selector, value) {
-  const results = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: (sel, val) => {
-      const el = document.querySelector(sel);
-      if (!el) return { error: 'Element not found' };
-      el.value = val;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      return { filled: true, tagName: el.tagName };
-    },
-    args: [selector, value]
-  });
-  return { success: true, result: results[0]?.result };
-}
-
-async function scrollPage(tabId, x, y) {
-  const results = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: (scrollX, scrollY) => {
-      window.scrollTo(scrollX, scrollY);
-      return { scrollX: window.scrollX, scrollY: window.scrollY };
-    },
-    args: [x || 0, y || 0]
-  });
-  return { success: true, result: results[0]?.result };
-}
-
-async function findElement(tabId, selector) {
-  const results = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: (sel) => {
-      const elements = Array.from(document.querySelectorAll(sel));
-      return {
-        count: elements.length,
-        elements: elements.map(el => ({
-          tagName: el.tagName,
-          text: el.innerText?.slice(0, 200),
-          visible: el.offsetParent !== null
-        }))
-      };
-    },
-    args: [selector]
-  });
-  return { success: true, result: results[0]?.result };
+function addError(error) {
+  const entry = { time: Date.now(), message: error.message || String(error) };
+  state.errors.push(entry);
+  if (state.errors.length > 50) state.errors.shift();
+  log('error', 'Error:', entry.message);
 }
 
 // Initialize
-connectNativeHost();
-
-// Keep service worker alive
-setInterval(() => {
-  if (!isConnected) {
-    connectNativeHost();
+async function init() {
+  log('log', 'Browser MCP Bridge initializing...');
+  
+  try {
+    await connectNativeHost();
+  } catch (err) {
+    addError(err);
   }
-}, 10000);
+}
 
-console.log('Browser MCP Bridge loaded');
+// Connect to native host (Go binary)
+function connectNativeHost() {
+  return new Promise((resolve, reject) => {
+    log('log', 'Connecting to native host...');
+    
+    try {
+      state.nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+    } catch (err) {
+      reject(new Error(`Failed to connect native host: ${err.message}`));
+      return;
+    }
+    
+    state.nativePort.onMessage.addListener((msg) => {
+      handleNativeMessage(msg, resolve, reject);
+    });
+    
+    state.nativePort.onDisconnect.addListener(() => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        log('error', 'Native host disconnected:', error.message);
+        addError(error);
+      } else {
+        log('log', 'Native host disconnected');
+      }
+      
+      state.nativePort = null;
+      state.ready = false;
+      state.connected = false;
+      
+      // Attempt reconnect after delay
+      setTimeout(() => {
+        if (!state.ready) {
+          log('log', 'Attempting reconnect...');
+          connectNativeHost().catch(() => {});
+        }
+      }, 5000);
+    });
+  });
+}
+
+// Handle messages from native host
+function handleNativeMessage(msg, resolve, reject) {
+  log('log', 'Native message:', msg);
+  
+  if (msg.error) {
+    const err = new Error(msg.error);
+    addError(err);
+    reject(err);
+    return;
+  }
+  
+  // Received WebSocket port
+  if (msg.port) {
+    state.wsPort = msg.port;
+    log('log', 'Received WebSocket port:', msg.port);
+    connectWebSocket(msg.port).then(resolve).catch(reject);
+    return;
+  }
+  
+  // Ready status
+  if (msg.status === 'ready') {
+    state.ready = true;
+    log('log', 'Native host ready');
+  }
+}
+
+// Connect to WebSocket server
+function connectWebSocket(port) {
+  return new Promise((resolve, reject) => {
+    const wsUrl = `ws://127.0.0.1:${port}/ws`;
+    log('log', 'Connecting to WebSocket:', wsUrl);
+    
+    const ws = new WebSocket(wsUrl);
+    
+    ws.onopen = () => {
+      log('log', 'WebSocket connected');
+      state.ws = ws;
+      state.connected = true;
+      resolve();
+    };
+    
+    ws.onmessage = (event) => {
+      handleWebSocketMessage(event.data);
+    };
+    
+    ws.onclose = () => {
+      log('log', 'WebSocket closed');
+      state.ws = null;
+      state.connected = false;
+      state.ready = false;
+    };
+    
+    ws.onerror = (err) => {
+      log('error', 'WebSocket error:', err);
+      addError(new Error('WebSocket connection failed'));
+      reject(err);
+    };
+    
+    // Timeout
+    setTimeout(() => {
+      if (!state.connected) {
+        ws.close();
+        reject(new Error('WebSocket connection timeout'));
+      }
+    }, 10000);
+  });
+}
+
+// Handle WebSocket messages
+function handleWebSocketMessage(data) {
+  try {
+    const msg = JSON.parse(data);
+    
+    // Handle response to pending request
+    if (msg.id && state.pendingRequests.has(msg.id)) {
+      const { resolve, timer } = state.pendingRequests.get(msg.id);
+      clearTimeout(timer);
+      state.pendingRequests.delete(msg.id);
+      resolve(msg);
+      return;
+    }
+    
+    // Handle incoming request from server
+    if (msg.method) {
+      handleServerRequest(msg);
+    }
+  } catch (err) {
+    log('error', 'Failed to parse WebSocket message:', err);
+  }
+}
+
+// Handle requests from Go server (Go -> Extension)
+async function handleServerRequest(msg) {
+  const operationId = `op-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  try {
+    state.activeOperations.set(operationId, {
+      method: msg.method,
+      startTime: Date.now()
+    });
+    
+    let result;
+    
+    switch (msg.method) {
+      case 'browser.tabs.query':
+        result = await chrome.tabs.query({});
+        break;
+        
+      case 'browser.tabs.update':
+        const { tabId, props } = JSON.parse(msg.params);
+        result = await chrome.tabs.update(tabId, props);
+        break;
+        
+      case 'browser.tabs.remove':
+        const { tabId: removeId } = JSON.parse(msg.params);
+        await chrome.tabs.remove(removeId);
+        result = null;
+        break;
+        
+      case 'browser.tabs.captureVisibleTab':
+        result = await chrome.tabs.captureVisibleTab();
+        break;
+        
+      case 'browser.scripting.executeScript':
+        const { tabId: scriptTabId, script } = JSON.parse(msg.params);
+        result = await chrome.scripting.executeScript({
+          target: { tabId: scriptTabId },
+          func: (code) => {
+            try {
+              return eval(code);
+            } catch (e) {
+              return { error: e.message };
+            }
+          },
+          args: [script]
+        });
+        break;
+        
+      default:
+        throw new Error(`Unknown method: ${msg.method}`);
+    }
+    
+    // Send success response
+    sendResponse(msg.id, { result });
+    
+  } catch (err) {
+    log('error', `Request ${msg.method} failed:`, err);
+    sendResponse(msg.id, { error: err.message });
+  } finally {
+    state.activeOperations.delete(operationId);
+  }
+}
+
+// Send response to server
+function sendResponse(id, data) {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    log('error', 'Cannot send response: WebSocket not connected');
+    return;
+  }
+  
+  const msg = { id, ...data };
+  state.ws.send(JSON.stringify(msg));
+}
+
+// Send request to server (Extension -> Go) and wait for response
+function sendRequest(method, params = {}) {
+  return new Promise((resolve, reject) => {
+    if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+      reject(new Error('WebSocket not connected'));
+      return;
+    }
+    
+    state.requestId++;
+    const id = state.requestId;
+    
+    const msg = {
+      id,
+      method,
+      params: JSON.stringify(params)
+    };
+    
+    // Set up timeout
+    const timer = setTimeout(() => {
+      state.pendingRequests.delete(id);
+      reject(new Error('Request timeout'));
+    }, 30000);
+    
+    state.pendingRequests.set(id, { resolve, timer });
+    
+    state.ws.send(JSON.stringify(msg));
+  });
+}
+
+// --- MCP API exposed to popup/content ---
+
+const MCP = {
+  // Connection status
+  isConnected: () => state.connected && state.ready,
+  getStatus: () => ({
+    connected: state.connected,
+    ready: state.ready,
+    wsPort: state.wsPort,
+    activeOperations: Array.from(state.activeOperations.values()),
+    errors: state.errors.slice(-5),
+    logs: state.logs.slice(-10)
+  }),
+  
+  // Tab operations
+  async listTabs() {
+    return sendRequest('tabs/list');
+  },
+  
+  async activateTab(tabId) {
+    return sendRequest('tabs/activate', { tabId });
+  },
+  
+  async navigateTab(tabId, url) {
+    return sendRequest('tabs/navigate', { tabId, url });
+  },
+  
+  async closeTab(tabId) {
+    return sendRequest('tabs/close', { tabId });
+  },
+  
+  async screenshotTab(tabId) {
+    return sendRequest('tabs/screenshot', { tabId });
+  },
+  
+  // Page operations
+  async getPageContent(tabId) {
+    return sendRequest('page/getContent', { tabId });
+  },
+  
+  async executeScript(tabId, script) {
+    return sendRequest('page/executeScript', { tabId, script });
+  },
+  
+  async click(tabId, selector) {
+    return sendRequest('page/click', { tabId, selector });
+  },
+  
+  async fill(tabId, selector, value) {
+    return sendRequest('page/fill', { tabId, selector, value });
+  },
+  
+  async scroll(tabId, x = 0, y = 0) {
+    return sendRequest('page/scroll', { tabId, x, y });
+  },
+  
+  async find(tabId, selector) {
+    return sendRequest('page/find', { tabId, selector });
+  },
+  
+  // Tools
+  async getTools() {
+    return sendRequest('mcp/tools');
+  }
+};
+
+// Expose MCP to popup
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  const { action, params } = request;
+  
+  if (action === 'getStatus') {
+    sendResponse(MCP.getStatus());
+    return false;
+  }
+  
+  if (action === 'isConnected') {
+    sendResponse(MCP.isConnected());
+    return false;
+  }
+  
+  if (MCP[action]) {
+    MCP[action](...params || [])
+      .then(result => sendResponse({ success: true, result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Async response
+  }
+  
+  sendResponse({ success: false, error: `Unknown action: ${action}` });
+  return false;
+});
+
+// Initialize
+init();
+
+log('log', 'Background script loaded');
