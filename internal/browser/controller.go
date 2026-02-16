@@ -255,3 +255,8 @@ func (c *Controller) FindElements(ctx context.Context, tabID int, selector strin
 	}
 	return &findResult, nil
 }
+
+// GetTools returns the list of available tools.
+func (c *Controller) GetTools() []mcp.Tool {
+	return mcp.GetTools()
+}

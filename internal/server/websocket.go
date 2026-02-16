@@ -37,6 +37,7 @@ type Handler interface {
 	FillInput(ctx context.Context, tabID int, selector, value string) error
 	ScrollPage(ctx context.Context, tabID int, x, y int) error
 	FindElements(ctx context.Context, tabID int, selector string) (*mcp.FindResult, error)
+	GetTools() []mcp.Tool
 }
 
 // Server manages WebSocket connections and handles MCP messages.
@@ -80,9 +81,18 @@ func (s *Server) StartFixed(port int) (int, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
 	mux.HandleFunc("/health", s.handleHealth)
+	
+	// MCP 2024-11-05 protocol - root endpoint for initialization
+	mux.HandleFunc("/", s.handleMCPRoot)
+	
+	// Add HTTP MCP endpoints
+	s.setupMCPRoutes(mux)
+	
+	// Add SSE MCP endpoints
+	s.setupSSERoutes(mux)
 
 	s.server = &http.Server{
-		Handler:      mux,
+		Handler:      corsMiddleware(mux),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
@@ -118,6 +128,105 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"extension_connected": s.IsConnected(),
 	}
 	json.NewEncoder(w).Encode(response)
+}
+
+// handleMCPRoot handles the root endpoint for MCP 2024-11-05 protocol
+func (s *Server) handleMCPRoot(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+
+	// MCP protocol requires POST for initialization
+	if r.Method == http.MethodGet {
+		// Return server info
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"name":             "browser-mcp",
+			"version":          "1.0.0",
+			"protocol_version": "2024-11-05",
+		})
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error": "Method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse MCP request
+	var req struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      any             `json:"id"`
+		Method  string          `json:"method"`
+		Params  json.RawMessage `json:"params"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf(`{"error": "Invalid JSON: %s"}`, err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	// Handle MCP methods
+	var result any
+	var err error
+
+	switch req.Method {
+	case "initialize":
+		result = map[string]any{
+			"protocolVersion": "2024-11-05",
+			"capabilities":    map[string]any{},
+			"serverInfo": map[string]any{
+				"name":    "browser-mcp",
+				"version": "1.0.0",
+			},
+		}
+	case "tools/list":
+		result = map[string]any{"tools": mcp.GetTools()}
+	case "tools/call":
+		var toolReq struct {
+			Name string          `json:"name"`
+			Args json.RawMessage `json:"arguments"`
+		}
+		if err = json.Unmarshal(req.Params, &toolReq); err == nil {
+			result, err = s.callTool(toolReq.Name, toolReq.Args)
+		}
+	default:
+		err = fmt.Errorf("unknown method: %s", req.Method)
+	}
+
+	// Build response
+	response := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      req.ID,
+	}
+
+	if err != nil {
+		response["error"] = map[string]any{
+			"code":    -32603,
+			"message": err.Error(),
+		}
+	} else {
+		response["result"] = result
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -235,6 +344,9 @@ func (s *Server) handleRequest(msg *mcp.Message) {
 		}
 	case "mcp/tools":
 		result = mcp.GetTools()
+	case "ping":
+		// Keepalive ping - just respond with pong
+		result = map[string]any{"pong": true}
 	default:
 		err = fmt.Errorf("unknown method: %s", msg.Method)
 	}

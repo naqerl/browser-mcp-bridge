@@ -34,11 +34,30 @@ function addError(error) {
   log('error', 'Error:', entry.message);
 }
 
+// Keepalive to prevent service worker from being terminated
+function startKeepalive() {
+  // Send a ping every 20 seconds to keep connection alive
+  setInterval(() => {
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      // Send ping (server will respond with pong)
+      state.ws.send(JSON.stringify({ method: 'ping', id: 0 }));
+      log('debug', 'Keepalive ping sent');
+    }
+  }, 20000);
+  
+  // Also keep chrome runtime alive
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    // This keeps the service worker alive
+    return false;
+  });
+}
+
 // Initialize
 function init() {
   log('log', 'Browser MCP Bridge initializing...');
   log('log', 'Connecting to WebSocket at', WS_URL);
   connectWebSocket();
+  startKeepalive();
 }
 
 // Connect to WebSocket server
@@ -180,7 +199,13 @@ async function handleServerRequest(msg) {
     
   } catch (err) {
     log('error', `Request ${msg.method} failed:`, err);
-    sendResponse(msg.id, { error: err.message });
+    // Send proper MCP error format
+    sendResponse(msg.id, { 
+      error: { 
+        code: -32603, 
+        message: err.message || String(err) 
+      } 
+    });
   } finally {
     state.activeOperations.delete(operationId);
   }

@@ -30,7 +30,7 @@ func (e Error) Error() string {
 type Tool struct {
 	Name        string     `json:"name"`
 	Description string     `json:"description"`
-	Parameters  Parameters `json:"parameters"`
+	InputSchema Parameters `json:"inputSchema"`
 }
 
 // Parameters describes tool parameters.
@@ -172,12 +172,12 @@ func GetTools() []Tool {
 		{
 			Name:        "browser_tabs_list",
 			Description: "List all open browser tabs",
-			Parameters:  Parameters{Type: "object", Properties: map[string]Property{}, Required: []string{}},
+			InputSchema: Parameters{Type: "object", Properties: map[string]Property{}, Required: []string{}},
 		},
 		{
 			Name:        "browser_tab_activate",
 			Description: "Activate/focus a specific tab",
-			Parameters: Parameters{
+			InputSchema: Parameters{
 				Type: "object",
 				Properties: map[string]Property{
 					"tabId": {Type: "integer", Description: "ID of the tab to activate"},
@@ -188,7 +188,7 @@ func GetTools() []Tool {
 		{
 			Name:        "browser_tab_navigate",
 			Description: "Navigate a tab to a URL",
-			Parameters: Parameters{
+			InputSchema: Parameters{
 				Type: "object",
 				Properties: map[string]Property{
 					"tabId": {Type: "integer", Description: "ID of the tab"},
@@ -200,7 +200,7 @@ func GetTools() []Tool {
 		{
 			Name:        "browser_tab_close",
 			Description: "Close a tab",
-			Parameters: Parameters{
+			InputSchema: Parameters{
 				Type: "object",
 				Properties: map[string]Property{
 					"tabId": {Type: "integer", Description: "ID of the tab to close"},
@@ -211,7 +211,7 @@ func GetTools() []Tool {
 		{
 			Name:        "browser_tab_screenshot",
 			Description: "Take a screenshot of a tab",
-			Parameters: Parameters{
+			InputSchema: Parameters{
 				Type: "object",
 				Properties: map[string]Property{
 					"tabId": {Type: "integer", Description: "ID of the tab"},
@@ -222,7 +222,7 @@ func GetTools() []Tool {
 		{
 			Name:        "browser_page_content",
 			Description: "Get page content (text, HTML, links)",
-			Parameters: Parameters{
+			InputSchema: Parameters{
 				Type: "object",
 				Properties: map[string]Property{
 					"tabId": {Type: "integer", Description: "ID of the tab"},
@@ -233,7 +233,7 @@ func GetTools() []Tool {
 		{
 			Name:        "browser_page_click",
 			Description: "Click an element by CSS selector",
-			Parameters: Parameters{
+			InputSchema: Parameters{
 				Type: "object",
 				Properties: map[string]Property{
 					"tabId":    {Type: "integer", Description: "ID of the tab"},
@@ -245,7 +245,7 @@ func GetTools() []Tool {
 		{
 			Name:        "browser_page_fill",
 			Description: "Fill an input field",
-			Parameters: Parameters{
+			InputSchema: Parameters{
 				Type: "object",
 				Properties: map[string]Property{
 					"tabId":    {Type: "integer", Description: "ID of the tab"},
@@ -258,7 +258,7 @@ func GetTools() []Tool {
 		{
 			Name:        "browser_page_scroll",
 			Description: "Scroll the page",
-			Parameters: Parameters{
+			InputSchema: Parameters{
 				Type: "object",
 				Properties: map[string]Property{
 					"tabId": {Type: "integer", Description: "ID of the tab"},
@@ -271,7 +271,7 @@ func GetTools() []Tool {
 		{
 			Name:        "browser_page_execute",
 			Description: "Execute JavaScript in the page",
-			Parameters: Parameters{
+			InputSchema: Parameters{
 				Type: "object",
 				Properties: map[string]Property{
 					"tabId":  {Type: "integer", Description: "ID of the tab"},
@@ -283,7 +283,7 @@ func GetTools() []Tool {
 		{
 			Name:        "browser_page_find",
 			Description: "Find elements by CSS selector",
-			Parameters: Parameters{
+			InputSchema: Parameters{
 				Type: "object",
 				Properties: map[string]Property{
 					"tabId":    {Type: "integer", Description: "ID of the tab"},
