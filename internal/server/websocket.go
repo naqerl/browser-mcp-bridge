@@ -419,6 +419,7 @@ func (s *Server) SendRequest(method string, params any) (*mcp.Message, error) {
 	}()
 
 	paramsData, _ := json.Marshal(params)
+	s.logger.Debug("SendRequest", "method", method, "params", string(paramsData))
 	msg := &mcp.Message{
 		ID:     id,
 		Method: method,

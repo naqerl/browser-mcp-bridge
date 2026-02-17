@@ -195,7 +195,7 @@ test.describe('Browser MCP Bridge - E2E Tests', () => {
       
       // Navigate to example.com
       const result = await callTool('browser_tab_navigate', {
-        tab_id: activeTab.id,
+        tabId: activeTab.id,
         url: 'https://example.com'
       });
       
@@ -225,7 +225,7 @@ test.describe('Browser MCP Bridge - E2E Tests', () => {
       
       // Activate first tab
       const result = await callTool('browser_tab_activate', {
-        tab_id: tabs[0].id
+        tabId: tabs[0].id
       });
       
       expect(result.jsonrpc).toBe('2.0');
@@ -252,7 +252,7 @@ test.describe('Browser MCP Bridge - E2E Tests', () => {
       const blankTab = initialTabs.find(t => t.url === 'about:blank');
       if (blankTab) {
         const result = await callTool('browser_tab_close', {
-          tab_id: blankTab.id
+          tabId: blankTab.id
         });
         
         expect(result.jsonrpc).toBe('2.0');
@@ -284,7 +284,7 @@ test.describe('Browser MCP Bridge - E2E Tests', () => {
       
       // Get page content
       const result = await callTool('browser_page_content', {
-        tab_id: activeTab.id
+        tabId: activeTab.id
       });
       
       expect(result.jsonrpc).toBe('2.0');
@@ -310,7 +310,7 @@ test.describe('Browser MCP Bridge - E2E Tests', () => {
       
       // Find all paragraphs
       const result = await callTool('browser_page_find', {
-        tab_id: activeTab.id,
+        tabId: activeTab.id,
         selector: 'p'
       });
       
@@ -344,7 +344,7 @@ test.describe('Browser MCP Bridge - E2E Tests', () => {
       
       // Click the button
       const result = await callTool('browser_page_click', {
-        tab_id: activeTab.id,
+        tabId: activeTab.id,
         selector: '#test-btn'
       });
       
@@ -378,7 +378,7 @@ test.describe('Browser MCP Bridge - E2E Tests', () => {
       
       // Fill the input
       const result = await callTool('browser_page_fill', {
-        tab_id: activeTab.id,
+        tabId: activeTab.id,
         selector: '#test-input',
         value: 'Hello World'
       });
@@ -412,7 +412,7 @@ test.describe('Browser MCP Bridge - E2E Tests', () => {
       
       // Scroll down
       const result = await callTool('browser_page_scroll', {
-        tab_id: activeTab.id,
+        tabId: activeTab.id,
         x: 0,
         y: 500
       });
@@ -437,7 +437,7 @@ test.describe('Browser MCP Bridge - E2E Tests', () => {
       
       // Execute script
       const result = await callTool('browser_page_execute', {
-        tab_id: activeTab.id,
+        tabId: activeTab.id,
         script: 'return { url: window.location.href, title: document.title }'
       });
       
@@ -461,7 +461,7 @@ test.describe('Browser MCP Bridge - E2E Tests', () => {
       
       // Take screenshot
       const result = await callTool('browser_tab_screenshot', {
-        tab_id: activeTab.id
+        tabId: activeTab.id
       });
       
       expect(result.jsonrpc).toBe('2.0');
@@ -484,7 +484,7 @@ test.describe('Browser MCP Bridge - E2E Tests', () => {
 
     test('returns error for invalid tab ID', async () => {
       const result = await callTool('browser_tab_navigate', {
-        tab_id: 999999999,
+        tabId: 999999999,
         url: 'https://example.com'
       });
       
@@ -599,7 +599,7 @@ test.describe('Browser MCP Bridge - E2E Tests', () => {
       
       // Navigate to same URL again
       const result = await callTool('browser_tab_navigate', {
-        tab_id: activeTab.id,
+        tabId: activeTab.id,
         url: 'https://example.com'
       });
       
@@ -618,7 +618,7 @@ test.describe('Browser MCP Bridge - E2E Tests', () => {
       const activeTab = tabs.find(t => t.active);
       
       const result = await callTool('browser_tab_screenshot', {
-        tab_id: activeTab.id
+        tabId: activeTab.id
       });
       
       const text = getResultText(result);

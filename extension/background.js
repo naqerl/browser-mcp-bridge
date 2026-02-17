@@ -219,6 +219,8 @@ async function handleServerRequest(msg) {
         break;
         
       case 'browser.tabs.update':
+        log('log', `tabs.update RAW msg.params: ${JSON.stringify(msg.params)}`);
+        log('log', `tabs.update PARSED params: ${JSON.stringify(params)}`);
         log('log', `tabs.update called: tabId=${params.tabId}, props=${JSON.stringify(params.props)}`);
         try {
           result = await chrome.tabs.update(params.tabId, params.props);

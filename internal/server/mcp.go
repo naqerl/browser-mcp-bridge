@@ -269,9 +269,12 @@ func (s *Server) callTool(toolName string, params json.RawMessage) (any, error) 
 			TabID int    `json:"tabId"`
 			URL   string `json:"url"`
 		}
+		s.logger.Debug("browser_tab_navigate called", "params", string(params))
 		if err := json.Unmarshal(params, &p); err != nil {
+			s.logger.Error("failed to unmarshal navigate params", "error", err, "params", string(params))
 			return nil, err
 		}
+		s.logger.Debug("parsed navigate params", "tabId", p.TabID, "url", p.URL)
 		if err := s.handler.NavigateTab(ctx, p.TabID, p.URL); err != nil {
 			return nil, err
 		}
